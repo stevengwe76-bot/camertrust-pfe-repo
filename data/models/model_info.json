@@ -1,0 +1,44 @@
+{
+  "features": [
+    "amount",
+    "oldbalanceOrg",
+    "newbalanceOrig",
+    "oldbalanceDest",
+    "newbalanceDest",
+    "type_CASH_IN",
+    "type_CASH_OUT",
+    "type_DEBIT",
+    "type_PAYMENT",
+    "type_TRANSFER"
+  ],
+  "input_format": {
+    "amount": "float",
+    "oldbalanceOrg": "float",
+    "newbalanceOrig": "float",
+    "oldbalanceDest": "float",
+    "newbalanceDest": "float",
+    "type_CASH_IN": "float",
+    "type_CASH_OUT": "float",
+    "type_DEBIT": "float",
+    "type_PAYMENT": "float",
+    "type_TRANSFER": "float"
+  },
+  "threshold": 0.06,
+  "model_type": "RandomForestClassifier",
+  "metrics": {
+    "f1_fraude": 0.3977659057795046,
+    "auc_roc": 0.9992913691255885,
+    "cv_f1_mean": 0.9960543382862636,
+    "cv_f1_std": 0.0002295331505880338
+  },
+  "isolation_forest": {
+    "path": "isolation_forest.pkl",
+    "purpose": "Detection non supervisee de fraudes inconnues (complement au modele supervise)",
+    "contamination": 0.0012911347840983745,
+    "metrics_fraude": {
+      "precision": 0.004490057729313663,
+      "recall": 0.00426049908703591,
+      "f1-score": 0.004372267332916927
+    }
+  }
+}

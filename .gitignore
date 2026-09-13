@@ -1,0 +1,93 @@
+# =============================================================================
+# CamerTrust Lite - .gitignore
+# A placer a la racine du depot cameratrust-pfe
+# =============================================================================
+
+# --- Secrets et configuration locale (NE JAMAIS COMMITER) ------------------
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+!.streamlit/secrets.toml.example
+config.toml
+
+# --- Python -------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.Python
+build/
+dist/
+
+# Environnements virtuels
+venv/
+.venv/
+env/
+ENV/
+VENVAPI/
+dash/
+DASH/
+venvapi/
+
+# Tests et couverture
+.pytest_cache/
+.coverage
+htmlcov/
+test_camertrust.db
+
+# --- Bases de donnees locales ----------------------------------------------
+*.db
+*.sqlite3
+camertrust.db
+
+# --- Donnees volumineuses ----------------------------------------------
+# PaySim.csv fait ~470 Mo : au-dela de la limite GitHub (100 Mo/fichier) et
+# telechargeable librement sur Kaggle -> ne JAMAIS le commiter.
+data/raw/*.csv
+data/raw/*.zip
+
+# Fichiers pretraites (S1-S3) : volumineux et regenerables via
+# prepare_data_camertrust.py -> non commites. Voir data/processed/.gitkeep
+# pour garder le dossier dans le depot.
+data/processed/*.csv
+
+# --- Modeles et resultats ML ------------------------------------------------
+# ATTENTION : NE PAS ignorer pipeline_complet.pkl, model_info.json et
+# isolation_forest.pkl -> ce sont les livrables attendus par E2, ils DOIVENT
+# etre commites (voir plan de travail, point de synchronisation Fin S7/S9).
+# Seuls les gros fichiers intermediaires/regenerables sont ignores ci-dessous
+# si tu preferes ne pas les versionner (decommente au besoin) :
+# data/models/modele_rf_v1.pkl
+# data/models/modele_xgb_v1.pkl
+
+# --- Logs -------------------------------------------------------------
+api/logs/*.log
+*.log
+
+# --- Docker -------------------------------------------------------------
+# (rien a ignorer par defaut ; les volumes nommes sont geres par Docker,
+# pas par le systeme de fichiers du depot)
+
+# --- Rapports Locust / tests de charge --------------------------------
+locust_report*.html
+
+# --- Notebooks Jupyter / Colab ----------------------------------------
+.ipynb_checkpoints/
+
+# --- Editeurs et IDE ----------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Systeme d'exploitation ----------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Documents Word/PDF temporaires (LibreOffice, Word) --------------------
+~$*.docx
+~$*.xlsx
+~$*.pptx
+.~lock.*#
