@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CamerTrust Lite - Script de demo de l'API via curl
-# Usage : ./demo_api.sh https://camertrust-api.onrender.com
+# Usage : ./demo_api.sh https://camertrust-pfe-production-ae52.up.railway.app
 #         (par defaut : http://localhost:8000)
 
 set -e
@@ -26,8 +26,10 @@ curl -s -X POST "$BASE_URL/predict" \
       }' | python3 -m json.tool
 
 echo -e "\n=== 4. Obtention d'un token JWT ==="
+USERNAME="${DEMO_USERNAME:-camertrust}"
+PASSWORD="${DEMO_PASSWORD:-changeme123}"
 TOKEN=$(curl -s -X POST "$BASE_URL/auth/token" \
-  -d "username=camertrust&password=changeme123" \
+  -d "username=$USERNAME&password=$PASSWORD" \
   | python3 -c "import sys, json; print(json.load(sys.stdin)['access_token'])")
 echo "Token obtenu (tronque) : ${TOKEN:0:20}..."
 
