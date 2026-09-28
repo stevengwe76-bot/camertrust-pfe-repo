@@ -152,3 +152,93 @@ def test_alerts_filter_by_min_amount():
     )
     assert response.status_code == 200
     assert isinstance(response.json(), list)
+
+
+# ---------------------------------------------------------------------------
+# Resolution des alertes (utilisee par la page Alertes du dashboard)
+# ---------------------------------------------------------------------------
+def _auth_headers():
+    return {"Authorization": f"Bearer {_get_token()}"}
+
+
+def _create_fraud_transaction() -> str:
+    """Cree une transaction classee fraude et renvoie son id."""
+    from api.ml import model_service
+
+    original = model_service.threshold
+    model_service.threshold = 0.0          # tout score >= 0 -> fraude
+    try:
+        client.post("/predict", json={"amount": 750000, "type": "TRANSFER",
+                                      "old_balance_org": 750000, "new_balance_org": 0})
+    finally:
+        model_service.threshold = original
+    alerts = client.get("/alerts?limit=1", headers=_auth_headers()).json()
+    return alerts[0]["id"]
+
+
+def test_alerts_include_status_open_by_default():
+    alert_id = _create_fraud_transaction()
+    alerts = client.get("/alerts", headers=_auth_headers()).json()
+    alert = next(a for a in alerts if a["id"] == alert_id)
+    assert alert["status"] == "OPEN"
+    assert alert["resolved_by"] is None
+
+
+def test_resolve_alert_requires_auth():
+    response = client.patch("/alerts/x/resolve", json={"status": "RESOLVED", "resolved_by": "a"})
+    assert response.status_code == 401
+
+
+def test_resolve_alert_updates_status_and_filter():
+    alert_id = _create_fraud_transaction()
+    response = client.patch(
+        f"/alerts/{alert_id}/resolve",
+        json={"status": "DISMISSED", "resolved_by": "agent_001", "resolution_note": "Client joint"},
+        headers=_auth_headers(),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "DISMISSED" and body["resolved_by"] == "agent_001"
+
+    # Une seconde decision remplace la premiere
+    client.patch(f"/alerts/{alert_id}/resolve",
+                 json={"status": "RESOLVED", "resolved_by": "agent_002"}, headers=_auth_headers())
+    resolved = client.get("/alerts?status=RESOLVED", headers=_auth_headers()).json()
+    assert [a["id"] for a in resolved].count(alert_id) == 1
+    open_ids = [a["id"] for a in client.get("/alerts?status=OPEN", headers=_auth_headers()).json()]
+    assert alert_id not in open_ids
+
+
+def test_resolve_unknown_alert_returns_404():
+    response = client.patch("/alerts/inexistant/resolve",
+                            json={"status": "RESOLVED", "resolved_by": "a"}, headers=_auth_headers())
+    assert response.status_code == 404
+
+
+def test_resolve_rejects_invalid_status():
+    alert_id = _create_fraud_transaction()
+    response = client.patch(f"/alerts/{alert_id}/resolve",
+                            json={"status": "PEUT_ETRE", "resolved_by": "a"}, headers=_auth_headers())
+    assert response.status_code == 422
+
+
+def test_resolve_non_fraud_transaction_returns_409():
+    from api.ml import model_service
+
+    original = model_service.threshold
+    model_service.threshold = 1.1          # aucun score ne depasse -> legitime
+    try:
+        client.post("/predict", json={"amount": 1000, "type": "PAYMENT"})
+    finally:
+        model_service.threshold = original
+    tx = client.get("/transactions?limit=1", headers=_auth_headers()).json()[0]
+    assert tx["is_fraud"] is False
+    response = client.patch(f"/alerts/{tx['id']}/resolve",
+                            json={"status": "RESOLVED", "resolved_by": "a"}, headers=_auth_headers())
+    assert response.status_code == 409
+
+
+def test_info_exposes_model_error_when_dummy():
+    body = client.get("/info").json()
+    if not body["model_loaded"]:
+        assert body["model_error"]

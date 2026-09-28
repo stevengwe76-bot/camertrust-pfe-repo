@@ -8,7 +8,8 @@ Endpoints :
   POST /auth/token           - obtenir un token JWT (identifiants de demo)
   POST /predict              - analyser une transaction (public, utilise par E3)
   GET  /transactions         - liste paginee des transactions analysees
-  GET  /alerts                - transactions marquees fraude, filtrables
+  GET  /alerts                - transactions marquees fraude + statut de traitement
+  PATCH /alerts/{id}/resolve  - confirmer la fraude / signaler un faux positif
   GET  /                      - redirige vers la documentation Swagger
 
 Lancer en local :
@@ -24,7 +25,7 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -62,7 +63,9 @@ app.add_middleware(
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request, exc):
     logger.exception("Erreur non geree : %s", exc)
-    return {"detail": "Erreur interne du serveur"}, 500
+    # Un gestionnaire d'exception doit renvoyer une Response (un tuple provoquait
+    # une seconde erreur et une reponse texte brute au lieu de JSON).
+    return JSONResponse(status_code=500, content={"detail": "Erreur interne du serveur"})
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +90,7 @@ def info():
         "model_loaded": model_service.is_real_model,
         "model_type": model_service.model_type,
         "threshold": model_service.threshold,
+        "model_error": model_service.load_error,
     }
 
 
@@ -167,26 +171,84 @@ def get_transactions(
     )
 
 
-@app.get("/alerts", response_model=list[schemas.TransactionOut], tags=["Donnees"])
+def _alert_out(tx: models.Transaction, review: Optional[models.AlertReview]) -> dict:
+    """Assemble une transaction frauduleuse et la decision de l'analyste (si elle existe)."""
+    data = schemas.TransactionOut.model_validate(tx).model_dump()
+    data.update(
+        status=review.status if review else "OPEN",
+        resolved_by=review.resolved_by if review else None,
+        resolution_note=review.resolution_note if review else None,
+        reviewed_at=review.updated_at if review else None,
+    )
+    return data
+
+
+@app.get("/alerts", response_model=list[schemas.AlertOut], tags=["Donnees"])
 def get_alerts(
     limit: int = Query(default=50, le=500),
     skip: int = Query(default=0, ge=0),
     date_from: Optional[datetime] = Query(default=None, description="Filtrer depuis cette date (ISO 8601)"),
     min_amount: Optional[float] = Query(default=None, description="Montant minimum"),
+    alert_status: Optional[schemas.AlertStatus] = Query(
+        default=None, alias="status", description="OPEN, UNDER_REVIEW, RESOLVED ou DISMISSED"
+    ),
     db: Session = Depends(get_db),
     user: str = Depends(get_current_user),
 ):
-    """Transactions marquees comme fraude, filtrables par date et montant."""
-    query = db.query(models.Transaction).filter(models.Transaction.is_fraud.is_(True))
+    """Transactions marquees comme fraude avec leur statut de traitement, filtrables."""
+    query = (
+        db.query(models.Transaction, models.AlertReview)
+        .outerjoin(models.AlertReview, models.AlertReview.transaction_id == models.Transaction.id)
+        .filter(models.Transaction.is_fraud.is_(True))
+    )
 
     if date_from is not None:
         query = query.filter(models.Transaction.created_at >= date_from)
     if min_amount is not None:
         query = query.filter(models.Transaction.amount >= min_amount)
+    if alert_status == "OPEN":
+        query = query.filter(
+            (models.AlertReview.status.is_(None)) | (models.AlertReview.status == "OPEN")
+        )
+    elif alert_status is not None:
+        query = query.filter(models.AlertReview.status == alert_status)
 
-    return (
+    rows = (
         query.order_by(models.Transaction.created_at.desc())
         .offset(skip)
         .limit(limit)
         .all()
     )
+    return [_alert_out(tx, review) for tx, review in rows]
+
+
+@app.patch("/alerts/{transaction_id}/resolve", response_model=schemas.AlertOut, tags=["Donnees"])
+def resolve_alert(
+    transaction_id: str,
+    body: schemas.AlertResolveIn,
+    db: Session = Depends(get_db),
+    user: str = Depends(get_current_user),
+):
+    """
+    Enregistre la decision d'un analyste sur une alerte :
+    RESOLVED = fraude confirmee, DISMISSED = faux positif,
+    UNDER_REVIEW = en cours d'examen, OPEN = reouvrir.
+    """
+    tx = db.get(models.Transaction, transaction_id)
+    if tx is None:
+        raise HTTPException(status_code=404, detail="Transaction introuvable")
+    if not tx.is_fraud:
+        raise HTTPException(status_code=409, detail="Cette transaction n'est pas une alerte (is_fraud = false)")
+
+    review = db.get(models.AlertReview, transaction_id)
+    if review is None:
+        review = models.AlertReview(transaction_id=transaction_id)
+        db.add(review)
+    review.status = body.status
+    review.resolved_by = body.resolved_by
+    review.resolution_note = body.resolution_note or None
+    db.commit()
+    db.refresh(review)
+
+    logger.info("Alerte %s -> %s par %s", transaction_id, body.status, body.resolved_by)
+    return _alert_out(tx, review)

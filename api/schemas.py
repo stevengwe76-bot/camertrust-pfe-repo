@@ -6,9 +6,11 @@ Definissent le format exact des donnees entrantes/sortantes de l'API.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+AlertStatus = Literal["OPEN", "UNDER_REVIEW", "RESOLVED", "DISMISSED"]
 
 
 class TransactionIn(BaseModel):
@@ -53,8 +55,24 @@ class TransactionOut(BaseModel):
     score: float
     latency_ms: Optional[float] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AlertOut(TransactionOut):
+    """Alerte = transaction classée fraude + suivi de l'analyste."""
+
+    status: AlertStatus = "OPEN"
+    resolved_by: Optional[str] = None
+    resolution_note: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+
+
+class AlertResolveIn(BaseModel):
+    """Corps de PATCH /alerts/{id}/resolve envoyé par le dashboard."""
+
+    status: AlertStatus = Field(..., description="RESOLVED = fraude confirmée, DISMISSED = faux positif")
+    resolved_by: str = Field(..., min_length=1, max_length=100)
+    resolution_note: Optional[str] = Field(default="", max_length=1000)
 
 
 class TokenOut(BaseModel):
@@ -68,7 +86,10 @@ class HealthOut(BaseModel):
 
 
 class InfoOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     project: str
     model_loaded: bool
     model_type: Optional[str] = None
     threshold: Optional[float] = None
+    model_error: Optional[str] = None

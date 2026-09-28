@@ -29,6 +29,9 @@ class Settings(BaseSettings):
 
     # Modele ML fourni par E1
     model_path: str = "data/models/pipeline_complet.pkl"
+    # Optionnel : lien de téléchargement direct du .pkl (GitHub Release, Hugging Face…)
+    # utilisé au démarrage si le fichier n'est pas dans l'image (trop lourd pour Git).
+    model_url: str = ""
     model_info_path: str = "data/models/model_info.json"
     default_threshold: float = 0.5
 

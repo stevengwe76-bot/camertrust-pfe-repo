@@ -92,3 +92,43 @@ def test_predict_reindexes_columns_in_training_order(service_with_onehot_feature
     assert captured["columns"] == service_with_onehot_features.features
     assert score == 0.3
     assert is_fraud is False
+
+
+# ---------------------------------------------------------------------------
+# Chargement robuste du modele
+# ---------------------------------------------------------------------------
+def test_corrupted_model_file_falls_back_to_dummy(tmp_path, monkeypatch):
+    from api import ml
+
+    bad = tmp_path / "pipeline_complet.pkl"
+    bad.write_bytes(b"pas un pickle")
+    monkeypatch.setattr(ml.settings, "model_path", str(bad))
+    monkeypatch.setattr(ml.settings, "model_url", "")
+    service = ml.ModelService()
+    assert service.is_real_model is False
+    assert "Echec du chargement" in service.load_error
+
+
+def test_model_is_downloaded_from_model_url(tmp_path, monkeypatch):
+    import joblib
+    from api import ml
+
+    source = tmp_path / "source.pkl"
+    joblib.dump({"fake": "model"}, source)
+    dest = tmp_path / "models" / "pipeline_complet.pkl"
+    monkeypatch.setattr(ml.settings, "model_path", str(dest))
+    monkeypatch.setattr(ml.settings, "model_url", source.as_uri())
+    service = ml.ModelService()
+    assert dest.exists()
+    assert service.is_real_model is True
+    assert service.load_error is None
+
+
+def test_bad_model_url_falls_back_to_dummy(tmp_path, monkeypatch):
+    from api import ml
+
+    monkeypatch.setattr(ml.settings, "model_path", str(tmp_path / "absent.pkl"))
+    monkeypatch.setattr(ml.settings, "model_url", (tmp_path / "nexiste_pas.pkl").as_uri())
+    service = ml.ModelService()
+    assert service.is_real_model is False
+    assert "MODEL_URL" in service.load_error

@@ -15,6 +15,7 @@ COPY . .
 
 RUN gdown "https://drive.google.com/file/d/1A_vR9Xi6VTPDz6nrN98bKv0LjEhJns18/view?usp=sharing"
 
+
 RUN mkdir -p data/models
 
 EXPOSE 8000

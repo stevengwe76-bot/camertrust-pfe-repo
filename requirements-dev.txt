@@ -1,0 +1,5 @@
+# Outils de test (non installes dans l'image de production)
+-r requirements.txt
+pytest==8.3.3
+httpx==0.27.2
+locust==2.31.6

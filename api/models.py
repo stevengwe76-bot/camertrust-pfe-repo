@@ -6,7 +6,7 @@ E2 - Developpeur Backend
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Float, String
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, String
 
 from api.database import Base
 
@@ -39,3 +39,19 @@ class Transaction(Base):
     is_fraud = Column(Boolean, nullable=False, default=False, index=True)
     score = Column(Float, nullable=False)
     latency_ms = Column(Float, nullable=True)
+
+
+class AlertReview(Base):
+    """
+    Décision d'un analyste sur une alerte (transaction classée fraude).
+    Table séparée : Base.metadata.create_all() la crée au démarrage sans
+    toucher à la table « transactions » déjà existante en production.
+    """
+
+    __tablename__ = "alert_reviews"
+
+    transaction_id = Column(String, ForeignKey("transactions.id"), primary_key=True)
+    status = Column(String, nullable=False, default="OPEN")  # OPEN, UNDER_REVIEW, RESOLVED, DISMISSED
+    resolved_by = Column(String, nullable=True)
+    resolution_note = Column(String, nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)

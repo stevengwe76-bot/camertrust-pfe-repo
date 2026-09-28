@@ -11,6 +11,8 @@ l'API et du dashboard (E3) -> voir points de synchronisation du plan
 
 import json
 import logging
+import shutil
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -47,23 +49,52 @@ class ModelService:
         self.model_type: Optional[str] = None
         self.threshold: float = settings.default_threshold
         self.features: Optional[list] = None
+        self.load_error: Optional[str] = None
         self._load()
+
+    @staticmethod
+    def _download(url: str, dest: Path) -> None:
+        """Telecharge le modele (fichier trop lourd pour GitHub) vers dest."""
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(dest.suffix + ".part")
+        logger.info("Telechargement du modele depuis %s ...", url)
+        with urllib.request.urlopen(url, timeout=300) as resp, open(tmp, "wb") as f:
+            shutil.copyfileobj(resp, f)
+        tmp.replace(dest)
+        logger.info("Modele telecharge (%.1f Mo)", dest.stat().st_size / 1e6)
 
     def _load(self) -> None:
         model_path = Path(settings.model_path)
         info_path = Path(settings.model_info_path)
 
+        if not model_path.exists() and settings.model_url:
+            try:
+                self._download(settings.model_url, model_path)
+            except Exception as exc:  # reseau, lien invalide... -> DummyModel
+                self.load_error = f"Telechargement impossible depuis MODEL_URL : {exc}"
+                logger.error(self.load_error)
+
         if model_path.exists():
-            self.pipeline = joblib.load(model_path)
-            self.model_type = type(self.pipeline).__name__
-            logger.info("Pipeline charge depuis %s", model_path)
-        else:
+            try:
+                self.pipeline = joblib.load(model_path)
+                self.model_type = type(self.pipeline).__name__
+                logger.info("Pipeline charge depuis %s", model_path)
+            except Exception as exc:
+                # Ex : fichier corrompu, ou scikit-learn/xgboost d'une autre version
+                # que celle utilisee par E1. On ne fait pas planter toute l'API.
+                self.load_error = f"Echec du chargement de {model_path.name} : {exc}"
+                logger.exception(self.load_error)
+                self.pipeline = None
+
+        if self.pipeline is None:
             self.pipeline = DummyModel()
             self.model_type = "DummyModel (placeholder - en attente du fichier de E1)"
+            if self.load_error is None:
+                self.load_error = f"{model_path} introuvable dans le conteneur"
             logger.warning(
-                "pipeline_complet.pkl introuvable (%s) -> utilisation du DummyModel. "
-                "Demande a E1 de deposer le fichier dans data/models/.",
-                model_path,
+                "%s -> utilisation du DummyModel. Deposer pipeline_complet.pkl dans "
+                "data/models/ ou definir MODEL_URL.",
+                self.load_error,
             )
 
         if info_path.exists():
